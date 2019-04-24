@@ -1,19 +1,5 @@
-/*
- * Created by wangzhuozhou on 2017/4/12.
- * Copyright 2015－2019 Sensors Data Inc.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *       http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+/**Created by wangzhuozhou on 2015/08/01.
+ * Copyright © 2015－2018 Sensors Data Inc. All rights reserved. */
 
 package com.sensorsdata.analytics.android.sdk;
 
@@ -36,17 +22,12 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.text.TextUtils;
 import android.widget.Toast;
-
 import com.sensorsdata.analytics.android.sdk.data.DbAdapter;
 import com.sensorsdata.analytics.android.sdk.data.DbParams;
 import com.sensorsdata.analytics.android.sdk.data.persistent.PersistentFirstDay;
 import com.sensorsdata.analytics.android.sdk.data.persistent.PersistentFirstStart;
-import com.sensorsdata.analytics.android.sdk.util.AopUtil;
 import com.sensorsdata.analytics.android.sdk.util.SensorsDataTimer;
 import com.sensorsdata.analytics.android.sdk.util.SensorsDataUtils;
-
-import org.json.JSONObject;
-
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.OutputStream;
@@ -55,12 +36,15 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.Locale;
-import java.util.concurrent.TimeUnit;
+import org.json.JSONObject;
 
+/**
+ * Created by 王灼洲 on 2017/4/12
+ */
 
 @TargetApi(Build.VERSION_CODES.ICE_CREAM_SANDWICH)
 class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifecycleCallbacks {
-    private static final String TAG = "SA.LifecycleCallbacks";
+    private static final String TAG = "TMY";
     private SimpleDateFormat mIsFirstDayDateFormat;
     private Context mContext;
     private boolean resumeFromBackground = false;
@@ -73,13 +57,18 @@ class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifec
     private JSONObject endDataProperty = new JSONObject();
     private boolean isAutoTrackEnabled;
     private static final String EVENT_TIMER = "event_timer";
-    SensorsDataActivityLifecycleCallbacks(SensorsDataAPI instance, PersistentFirstStart firstStart,
-                                          PersistentFirstDay firstDay, Context context) {
+    public SensorsDataActivityLifecycleCallbacks(SensorsDataAPI instance, PersistentFirstStart firstStart,
+        PersistentFirstDay firstDay, Context context) {
         this.mSensorsDataInstance = instance;
         this.mFirstStart = firstStart;
         this.mFirstDay = firstDay;
         this.mContext = context;
         this.mDbAdapter = DbAdapter.getInstance();
+        try {
+            mIsFirstDayDateFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
+        } catch (Exception ex) {
+            SALog.printStackTrace(ex);
+        }
         if (Looper.myLooper() == null) {
             new Thread(new Runnable() {
                 @Override
@@ -93,7 +82,7 @@ class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifec
             initTimerAndObserver();
         }
     }
-
+    
     @Override
     public void onActivityCreated(Activity activity, Bundle bundle) {
         try {
@@ -113,49 +102,60 @@ class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifec
                 } else if ("debugmode".equals(host)) {
                     String infoId = uri.getQueryParameter("info_id");
                     showDebugModeSelectDialog(activity, infoId);
-                } else if ("visualized".equals(host)) {
-                    String featureCode = uri.getQueryParameter("feature_code");
-                    String postUrl = uri.getQueryParameter("url");
-                    showOpenVisualizedAutoTrackDialog(activity, featureCode, postUrl);
                 }
             }
         } catch (Exception e) {
             com.sensorsdata.analytics.android.sdk.SALog.printStackTrace(e);
         }
     }
-
+    
     @Override
     public void onActivityStarted(Activity activity) {
         try {
+            SALog.i(TAG, "onActivityStarted()1");
             isAutoTrackEnabled = mSensorsDataInstance.isAutoTrackEnabled();
             if (!isAutoTrackEnabled) {
-                checkFirstDay();
+                if (mFirstDay.get() == null) {
+                    if (mIsFirstDayDateFormat == null) {
+                        mIsFirstDayDateFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
+                    }
+                    mFirstDay.commit(mIsFirstDayDateFormat.format(System.currentTimeMillis()));
+                }
                 //先从缓存中读取 SDKConfig
                 mSensorsDataInstance.applySDKConfigFromCache();
                 //每次启动 App，重新拉取最新的配置信息
                 mSensorsDataInstance.pullSDKConfigFromServer();
                 return;
             }
-
-            activityProperty = AopUtil.buildTitleAndScreenName(activity);
+            
+            SensorsDataUtils.getScreenNameAndTitleFromActivity(activityProperty, activity);
             SensorsDataUtils.mergeJSONObject(activityProperty, endDataProperty);
-            boolean sessionTimeOut = isSessionTimeOut();
+            boolean sessionTimeOut = Math.abs(System.currentTimeMillis() - mDbAdapter.getAppPausedTime()) > mDbAdapter.getSessionIntervalTime();
+            SALog.d(TAG, "SessionTimeOut:" + sessionTimeOut);
             if (sessionTimeOut && !mDbAdapter.getAppEndState()) {
                 trackAppEnd();
             }
-
+            
             if (sessionTimeOut || mDbAdapter.getAppEndState()) {
                 mDbAdapter.commitAppEndState(false);
-                checkFirstDay();
+                
+                if (mFirstDay.get() == null) {
+                    if (mIsFirstDayDateFormat == null) {
+                        mIsFirstDayDateFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
+                    }
+                    mFirstDay.commit(mIsFirstDayDateFormat.format(System.currentTimeMillis()));
+                }
+                
                 // XXX: 注意内部执行顺序
                 boolean firstStart = mFirstStart.get();
-
+                
                 try {
-                    mSensorsDataInstance.appBecomeActive();
+                    //mSensorsDataInstance.appBecomeActive();
+                    SALog.i(TAG, "onActivityStarted()2");
                 } catch (Exception e) {
                     com.sensorsdata.analytics.android.sdk.SALog.printStackTrace(e);
                 }
-
+                
                 //从后台恢复，从缓存中读取 SDK 控制配置信息
                 if (resumeFromBackground) {
                     //先从缓存中读取 SDKConfig
@@ -166,52 +166,55 @@ class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifec
                 }
                 //每次启动 App，重新拉取最新的配置信息
                 mSensorsDataInstance.pullSDKConfigFromServer();
-
+                
                 try {
-                    if (!mSensorsDataInstance.isAutoTrackEventTypeIgnored(SensorsDataAPI.AutoTrackEventType.APP_START)) {
-                        if (firstStart) {
-                            mFirstStart.commit(false);
+                    if (isAutoTrackEnabled) {
+                        if (!mSensorsDataInstance.isAutoTrackEventTypeIgnored(SensorsDataAPI.AutoTrackEventType.APP_START)) {
+                            if (firstStart) {
+                                mFirstStart.commit(false);
+                            }
+                            JSONObject properties = new JSONObject();
+                            properties.put("$resume_from_background", resumeFromBackground);
+                            properties.put("$is_first_time", firstStart);
+                            SensorsDataUtils.mergeJSONObject(activityProperty, properties);
+                            mSensorsDataInstance.track("$AppStart", properties);
                         }
-                        JSONObject properties = new JSONObject();
-                        properties.put("$resume_from_background", resumeFromBackground);
-                        properties.put("$is_first_time", firstStart);
-                        SensorsDataUtils.mergeJSONObject(activityProperty, properties);
-                        mSensorsDataInstance.track("$AppStart", properties);
-                    }
-
-                    if (!mSensorsDataInstance.isAutoTrackEventTypeIgnored(SensorsDataAPI.AutoTrackEventType.APP_END)) {
-                        mDbAdapter.commitAppStartTime(SystemClock.elapsedRealtime());
-                        mSensorsDataInstance.trackTimer("$AppEnd", TimeUnit.SECONDS);
+                        
+                        
                     }
                 } catch (Exception e) {
                     SALog.i(TAG, e);
                 }
-
+                
                 if (resumeFromBackground) {
                     try {
                         HeatMapService.getInstance().resume();
-                        VisualizedAutoTrackService.getInstance().resume();
                     } catch (Exception e) {
                         com.sensorsdata.analytics.android.sdk.SALog.printStackTrace(e);
                     }
                 }
-
+                
                 // 下次启动时，从后台恢复
                 resumeFromBackground = true;
-
+                
             }
         } catch (Exception e) {
             com.sensorsdata.analytics.android.sdk.SALog.printStackTrace(e);
         }
     }
-
+    
     @Override
     public void onActivityResumed(final Activity activity) {
         try {
+            SALog.i(TAG, "onActivityResumed()1");
             mDbAdapter.commitAppStart(true);
-
-            if (isAutoTrackEnabled && !mSensorsDataInstance.isActivityAutoTrackAppViewScreenIgnored(activity.getClass())
-                    && !mSensorsDataInstance.isAutoTrackEventTypeIgnored(SensorsDataAPI.AutoTrackEventType.APP_VIEW_SCREEN)) {
+            
+            boolean mShowAutoTrack = true;
+            if (mSensorsDataInstance.isActivityAutoTrackAppViewScreenIgnored(activity.getClass())) {
+                mShowAutoTrack = false;
+            }
+            
+            if (isAutoTrackEnabled && mShowAutoTrack && !mSensorsDataInstance.isAutoTrackEventTypeIgnored(SensorsDataAPI.AutoTrackEventType.APP_VIEW_SCREEN)) {
                 try {
                     JSONObject properties = new JSONObject();
                     SensorsDataUtils.mergeJSONObject(activityProperty, properties);
@@ -222,8 +225,8 @@ class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifec
                         if (otherProperties != null) {
                             SensorsDataUtils.mergeJSONObject(otherProperties, properties);
                         }
-
-                        mSensorsDataInstance.trackViewScreen(screenUrl, properties);
+                        SALog.i(TAG, "onActivityResumed()2");
+                        //mSensorsDataInstance.trackViewScreen(screenUrl, properties);
                     } else {
                         SensorsDataAutoTrackAppViewScreenUrl autoTrackAppViewScreenUrl = activity.getClass().getAnnotation(SensorsDataAutoTrackAppViewScreenUrl.class);
                         if (autoTrackAppViewScreenUrl != null) {
@@ -231,7 +234,8 @@ class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifec
                             if (TextUtils.isEmpty(screenUrl)) {
                                 screenUrl = activity.getClass().getCanonicalName();
                             }
-                            mSensorsDataInstance.trackViewScreen(screenUrl, properties);
+                            //mSensorsDataInstance.trackViewScreen(screenUrl, properties);
+                            SALog.i(TAG, "onActivityResumed()3");
                         } else {
                             mSensorsDataInstance.track("$AppViewScreen", properties);
                         }
@@ -240,21 +244,27 @@ class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifec
                     SALog.i(TAG, e);
                 }
             }
-
+            
             if (isAutoTrackEnabled && !mSensorsDataInstance.isAutoTrackEventTypeIgnored(SensorsDataAPI.AutoTrackEventType.APP_END)) {
                 SensorsDataTimer.getInstance().timer(new Runnable() {
                     @Override
                     public void run() {
                         generateAppEndData();
-                        mSensorsDataInstance.flushDataSync();
                     }
-                }, 1000, 15000);
+                }, 500, 1000);
             }
+            SensorsDataTimer.getInstance().timer(new Runnable() {
+                @Override
+                public void run() {
+                    mSensorsDataInstance.flushDataSync();
+                }
+            }, 15000, 15000);
+            
         } catch (Exception e) {
             com.sensorsdata.analytics.android.sdk.SALog.printStackTrace(e);
         }
     }
-
+    
     @Override
     public void onActivityPaused(Activity activity) {
         if (!isAutoTrackEnabled) {
@@ -270,23 +280,25 @@ class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifec
             com.sensorsdata.analytics.android.sdk.SALog.printStackTrace(e);
         }
     }
-
+    
     @Override
     public void onActivityStopped(Activity activity) {
+        mSensorsDataInstance.flushDataSync();
     }
-
+    
     @Override
     public void onActivitySaveInstanceState(Activity activity, Bundle bundle) {
     }
-
+    
     @Override
     public void onActivityDestroyed(Activity activity) {
     }
-
+    
     /**
      *  send $AppEnd 事件
      */
     private void trackAppEnd(){
+        SALog.i(TAG, "trackAppEnd()有用");
         if (mDbAdapter.getAppEndState()) {
             return;
         }
@@ -294,12 +306,11 @@ class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifec
             mSensorsDataInstance.stopTrackScreenOrientation();
             mSensorsDataInstance.resetPullSDKConfigTimer();
             HeatMapService.getInstance().stop();
-            VisualizedAutoTrackService.getInstance().stop();
-            mSensorsDataInstance.appEnterBackground();
+            //mSensorsDataInstance.appEnterBackground();
         } catch (Exception e) {
             com.sensorsdata.analytics.android.sdk.SALog.printStackTrace(e);
         }
-
+        
         if (isAutoTrackEnabled) {
             try {
                 if (!mSensorsDataInstance.isAutoTrackEventTypeIgnored(SensorsDataAPI.AutoTrackEventType.APP_END)) {
@@ -307,20 +318,12 @@ class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifec
                     JSONObject endDataJsonObject = null;
                     if (!TextUtils.isEmpty(jsonEndData)) {
                         endDataJsonObject = new JSONObject(jsonEndData);
-                        if (endDataJsonObject.has(EVENT_TIMER)) {
-                            long startTime = mDbAdapter.getAppStartTime();
-                            long endTime = endDataJsonObject.getLong(EVENT_TIMER);
-                            EventTimer eventTimer = new EventTimer(TimeUnit.SECONDS, startTime, endTime);
-                            SALog.d(TAG,"startTime:" + startTime + "--endTime:" + endTime + "--event_duration:" + eventTimer.duration());
-                            mSensorsDataInstance.trackTimer("$AppEnd", eventTimer);
-                            endDataJsonObject.remove(EVENT_TIMER);
-                        }
                     }
                     JSONObject properties = new JSONObject();
                     if (endDataJsonObject != null) {
                         properties = new JSONObject(endDataJsonObject.toString());
                     }
-
+                    
                     mSensorsDataInstance.clearLastScreenUrl();
                     properties.put("event_time", mDbAdapter.getAppPausedTime());
                     mSensorsDataInstance.track("$AppEnd", properties);
@@ -335,7 +338,7 @@ class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifec
             com.sensorsdata.analytics.android.sdk.SALog.printStackTrace(e);
         }
     }
-
+    
     /**
      *  存储当前的 AppEnd 事件关键信息
      */
@@ -348,30 +351,19 @@ class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifec
             com.sensorsdata.analytics.android.sdk.SALog.printStackTrace(e);
         }
     }
-
-    /**
-     * 判断是否超出 Session 时间间隔
-     * @return true 超时，false 未超时
-     */
-    private boolean isSessionTimeOut() {
-        long currentTime = System.currentTimeMillis() > 946656000000L ? System.currentTimeMillis() :946656000000L;
-        boolean sessionTimeOut = Math.abs(currentTime - mDbAdapter.getAppPausedTime()) > mDbAdapter.getSessionIntervalTime();
-        SALog.d(TAG, "SessionTimeOut:" + sessionTimeOut);
-        return sessionTimeOut;
-    }
-
+    
     private void initTimerAndObserver() {
         initCountDownTimer();
         registerObserver();
     }
-
+    
     private void initCountDownTimer(){
         mCountDownTimer = new CountDownTimer(mDbAdapter.getSessionIntervalTime(),10*1000) {
             @Override
             public void onTick(long l) {
                 SALog.d(TAG,"time:" + l);
             }
-
+            
             @Override
             public void onFinish() {
                 SALog.d(TAG,"timeFinish");
@@ -381,31 +373,14 @@ class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifec
             }
         };
     }
-
-    /**
-     * 检查 DateFormat 是否为空，如果为空则进行初始化
-     */
-    private void checkFirstDay() {
-        try {
-            if (mFirstDay.get() == null) {
-                if (mIsFirstDayDateFormat == null) {
-                    mIsFirstDayDateFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
-                }
-
-                mFirstDay.commit(mIsFirstDayDateFormat.format(System.currentTimeMillis()));
-            }
-        } catch (Exception ex) {
-            SALog.printStackTrace(ex);
-        }
-    }
-
+    
     private void registerObserver(){
         final SensorsActivityStateObserver activityStateObserver = new SensorsActivityStateObserver(new Handler(Looper.myLooper()));
         mContext.getContentResolver().registerContentObserver(DbParams.getInstance().getAppStartUri(), false, activityStateObserver);
         mContext.getContentResolver().registerContentObserver(DbParams.getInstance().getSessionTimeUri(),false, activityStateObserver);
         mContext.getContentResolver().registerContentObserver(DbParams.getInstance().getAppEndStateUri(),false, activityStateObserver);
     }
-
+    
     private void showDebugModeSelectDialog(final Activity activity, final String infoId) {
         try {
             DebugModeSelectDialog dialog = new DebugModeSelectDialog(activity, mSensorsDataInstance.getDebugMode());
@@ -415,7 +390,7 @@ class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifec
                 public void onCancel(Dialog dialog) {
                     dialog.cancel();
                 }
-
+                
                 @Override
                 public void setDebugMode(Dialog dialog, SensorsDataAPI.DebugMode debugMode) {
                     mSensorsDataInstance.setDebugMode(debugMode);
@@ -448,14 +423,14 @@ class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifec
             SALog.printStackTrace(e);
         }
     }
-
+    
     private void showOpenHeatMapDialog(final Activity context, final String featureCode, final String postUrl) {
         try {
             if (!SensorsDataAPI.sharedInstance().isAppHeatMapConfirmDialogEnabled()) {
                 HeatMapService.getInstance().start(context, featureCode, postUrl);
                 return;
             }
-
+            
             boolean isWifi = false;
             try {
                 String networkType = SensorsDataUtils.networkType(context);
@@ -465,19 +440,19 @@ class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifec
             } catch (Exception e) {
                 SALog.printStackTrace(e);
             }
-
+            
             AlertDialog.Builder builder = new AlertDialog.Builder(context);
             builder.setTitle("提示");
             if (isWifi) {
-                builder.setMessage("正在连接 App 点击分析");
+                builder.setMessage("正在连接 APP 点击分析");
             } else {
-                builder.setMessage("正在连接 App 点击分析，建议在 WiFi 环境下使用");
+                builder.setMessage("正在连接 APP 点击分析，建议在 WiFi 环境下使用");
             }
             builder.setCancelable(false);
             builder.setNegativeButton("取消", new DialogInterface.OnClickListener() {
                 @Override
                 public void onClick(DialogInterface dialog, int which) {
-
+                
                 }
             });
             builder.setPositiveButton("继续", new DialogInterface.OnClickListener() {
@@ -488,7 +463,7 @@ class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifec
             });
             AlertDialog dialog = builder.create();
             dialog.show();
-
+            
             try {
                 dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(Color.BLACK);
                 dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(Color.RED);
@@ -499,9 +474,9 @@ class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifec
             SALog.printStackTrace(e);
         }
     }
-
+    
     private class SensorsActivityStateObserver extends ContentObserver {
-
+        
         /**
          * Creates a content observer.
          *
@@ -510,7 +485,7 @@ class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifec
         SensorsActivityStateObserver(Handler handler) {
             super(handler);
         }
-
+        
         @Override
         public void onChange(boolean selfChange, Uri uri) {
             super.onChange(selfChange, uri);
@@ -529,7 +504,7 @@ class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifec
             }
         }
     }
-
+    
     class SendDebugIdThread extends Thread {
         private String distinctId;
         private String infoId;
@@ -544,7 +519,7 @@ class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifec
             super.run();
             sendHttpRequest(serverUrl, false);
         }
-
+        
         private void sendHttpRequest(String serverUrl, boolean isRedirects) {
             ByteArrayOutputStream out = null;
             OutputStream out2 = null;
@@ -569,7 +544,7 @@ class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifec
                 connection.setUseCaches(false);
                 connection.setRequestMethod("POST");
                 connection.setRequestProperty("Content-type", "text/plain");
-
+                
                 out2 = connection.getOutputStream();
                 bout = new BufferedOutputStream(out2);
                 bout.write(out.toString().getBytes("UTF-8"));
@@ -590,7 +565,7 @@ class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifec
                 closeStream(out, out2, bout, connection);
             }
         }
-
+        
         private void closeStream(ByteArrayOutputStream out, OutputStream out2, BufferedOutputStream bout, HttpURLConnection connection) {
             if (out != null) {
                 try {
@@ -620,57 +595,6 @@ class SensorsDataActivityLifecycleCallbacks implements Application.ActivityLifec
                     SALog.printStackTrace(e);
                 }
             }
-        }
-    }
-
-    private void showOpenVisualizedAutoTrackDialog(final Activity context, final String featureCode, final String postUrl) {
-        try {
-            if (!SensorsDataAPI.sharedInstance().isVisualizedAutoTrackConfirmDialogEnabled()) {
-                VisualizedAutoTrackService.getInstance().start(context, featureCode, postUrl);
-                return;
-            }
-
-            boolean isWifi = false;
-            try {
-                String networkType = SensorsDataUtils.networkType(context);
-                if (networkType.equals("WIFI")) {
-                    isWifi = true;
-                }
-            } catch (Exception e) {
-
-            }
-
-            AlertDialog.Builder builder = new AlertDialog.Builder(context);
-            builder.setTitle("提示");
-            if (isWifi) {
-                builder.setMessage("正在连接 App 可视化全埋点");
-            } else {
-                builder.setMessage("正在连接 App 可视化全埋点，建议在 WiFi 环境下使用");
-            }
-            builder.setCancelable(false);
-            builder.setNegativeButton("取消", new DialogInterface.OnClickListener() {
-                @Override
-                public void onClick(DialogInterface dialog, int which) {
-
-                }
-            });
-            builder.setPositiveButton("继续", new DialogInterface.OnClickListener() {
-                @Override
-                public void onClick(DialogInterface dialog, int which) {
-                    VisualizedAutoTrackService.getInstance().start(context, featureCode, postUrl);
-                }
-            });
-            AlertDialog dialog = builder.create();
-            dialog.show();
-
-            try {
-                dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(Color.BLACK);
-                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(Color.RED);
-            } catch (Exception e) {
-                SALog.printStackTrace(e);
-            }
-        } catch (Exception e) {
-            SALog.printStackTrace(e);
         }
     }
 }

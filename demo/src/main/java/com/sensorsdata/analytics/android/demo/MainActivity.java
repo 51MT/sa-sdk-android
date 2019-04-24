@@ -44,7 +44,6 @@ public class MainActivity extends Activity {
     private void initLambdaButton() {
         Button button = (Button) findViewById(R.id.lambdaButton);
         button.setOnClickListener(v -> {
-
         });
     }
 
